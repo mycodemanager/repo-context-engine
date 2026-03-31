@@ -1,84 +1,87 @@
-# EGCE — Evidence-Grounded Context Engine
+# EGCE — Research & Development Workflow
 
-This project has EGCE installed. Use it to understand the codebase, find
-relevant code, and verify your changes.
+This project uses EGCE (Evidence-Grounded Context Engine) for context management.
+All commands are globally available via `egce`.
 
-## Available commands
+## Quick Reference
 
-### Scan the repository structure
 ```bash
-egce scan .
-egce scan . --depth 1                    # top-level symbols only
-egce scan . --include "src/*" --exclude "tests/*"
+egce init .              # Initialize project (first time)
+egce sync .              # Re-scan and update analysis
+egce sync . --check      # Check if context is stale
+egce scan .              # View repo structure
+egce search "query" .    # Find relevant code
+egce pipeline "task" .   # Full context pipeline
+egce verify .            # Run tests/lint
+egce spec list           # List requirement specs
+egce spec show <id>      # View a spec
+egce spec status <id> <status>  # Update spec status
 ```
 
-### Search for relevant code
-```bash
-egce search "authentication token validation" .
-egce search "database connection pooling" . --top-k 5
-egce search "error handling in API routes" . --exclude "tests/*,docs/*"
-```
+## Project Context
 
-### Full pipeline (search + compress + pack)
-```bash
-egce pipeline "fix the authentication bug in login flow" .
-egce pipeline "add retry logic to HTTP client" . --budget 4000
-egce pipeline "refactor database queries for performance" . --exclude "tests/*" --stats
-```
+- `.egce/analysis/` — Auto-generated analysis (do not edit, regenerate with `egce sync`)
+- `.egce/context/` — Human-reviewed project documentation (edit and commit)
+- `.egce/specs/` — Requirement specifications
 
-### Verify changes (auto-detects test/lint tools)
-```bash
-egce verify .
-egce verify . --only test
-egce verify . --only lint
-```
+## Workflow by Phase
 
-## When to use EGCE
+### Phase 1: Workspace Setup
 
-- **Before starting a task**: Run `egce scan` to understand the codebase structure,
-  or `egce search` to find code relevant to your task.
+When user provides repository URLs:
+1. Ask where to create the workspace
+2. Create the directory and git clone each repository
+3. Run `egce init` in the workspace root
+4. Read `.egce/analysis/` files for each project
+5. Generate `.egce/context/` files based on analysis results
+6. Ask user to review the generated context
 
-- **When context is too large**: Run `egce pipeline` to get a compressed, focused
-  view of the most relevant code for your task.
+### Phase 2: Requirement Analysis
 
-- **After making changes**: Run `egce verify` to check if tests and linters pass.
+When user describes a new requirement:
+1. Read `.egce/context/` to understand existing architecture, modules, and APIs
+2. Run `egce search "<requirement keywords>"` in each project to find related code
+3. Analyze what exists, what needs to change, and what needs to be created
+4. Output a structured spec (YAML) with:
+   - Precise API definitions (method, path, request/response fields with types)
+   - Frontend page changes (which page, what components, what interactions)
+   - Affected files list for both frontend and backend
+   - Testing requirements
+5. Save spec to workspace `.egce/specs/` directory
+6. Ask user to review and approve the spec
 
-- **When you need to find related code**: Run `egce search` with a description of
-  what you're looking for. It uses BM25 + symbol matching to find relevant chunks.
+IMPORTANT: The spec must be precise enough for AI to execute without guessing.
+Every API field must have a name and type. Every page change must specify the component.
 
-## Workflow
+### Phase 3: Development
 
-For any non-trivial code task, follow this pattern:
+When user approves a spec (status: approved):
+1. Update spec status to `in_progress`
+2. Process tasks one by one, in order
+3. For each task:
+   a. Run `egce pipeline "<task description>"` to get relevant context
+   b. Read the spec for exact API/field/component definitions
+   c. Write code following `.egce/context/conventions.md`
+   d. Run `egce verify .` after completing the task
+   e. If verification fails, read errors and fix
+   f. Mark task as done in the spec
+4. After all tasks complete, update spec status to `done`
 
-1. `egce search "<description of what you need>"` — find relevant code
-2. Read the top results to understand the codebase
-3. Make your changes
-4. `egce verify .` — check tests and lint
-5. If verification fails, read the error output and fix
+IMPORTANT: Follow the spec exactly. Do not change API paths, field names, or
+response formats from what the spec defines. The frontend and backend must match.
 
-For complex tasks where you need a comprehensive context snapshot:
+### Phase 4: Context Maintenance
 
-1. `egce pipeline "<task description>" . --budget 8000` — get a packed context
-2. Use the output to understand the full picture before making changes
+After completing a spec:
+1. Run `egce sync . --check` to find stale context
+2. If new modules were added → update `context/modules.md`
+3. If new APIs were added → update `context/api-contracts.md`
+4. If new data models were added → update `context/data-models.md`
+5. If new conventions emerged → update `context/conventions.md`
+6. Commit updated `.egce/context/` files with the code
 
-## Python API
+### Phase 5: Verification & Handoff
 
-You can also use EGCE programmatically:
-
-```python
-from egce import RepoMap, Retriever, ContextPacker, Verifier, compress_chunks
-
-# Scan
-result = RepoMap(".").scan()
-
-# Search
-retriever = Retriever(".")
-retriever.index()
-chunks = retriever.search("your query", top_k=10)
-
-# Compress
-compressed = compress_chunks(chunks, "your query")
-
-# Verify
-Verifier(".").run()
-```
+1. Run `egce verify .` one final time
+2. Summarize what was done, what was changed, and what to test
+3. If there are follow-up items, note them for the next cycle

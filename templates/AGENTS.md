@@ -1,42 +1,30 @@
-# EGCE — Evidence-Grounded Context Engine
+# EGCE — Research & Development Workflow
 
-This project has EGCE installed (`pip install egce`). Use it to search,
-understand, and verify code in this repository.
+This project uses EGCE for context management. Commands available globally via `egce`.
 
 ## Tools
 
-### Search for relevant code
 ```
-egce search "<natural language query>" .
+egce init .              — Initialize project analysis
+egce sync .              — Re-scan and update analysis
+egce scan .              — View repository structure
+egce search "query" .    — Find relevant code chunks
+egce pipeline "task" .   — Full pipeline: search → compress → pack
+egce verify .            — Run tests and linters
+egce spec list           — List requirement specs
+egce spec show <id>      — View a spec
 ```
-Returns ranked code chunks with file paths, line numbers, and relevance scores.
-Use this when you need to find code related to a specific topic or task.
 
-### Get a compressed context snapshot
-```
-egce pipeline "<task description>" .
-```
-Runs the full pipeline: search → compress → pack. Returns a token-budgeted
-context block with the most relevant code for your task.
+## Context Files
 
-### Scan repository structure
-```
-egce scan .
-```
-Returns the file tree with class/function signatures and import relationships.
-Use this to understand the overall codebase structure.
+- `.egce/analysis/` — Auto-generated code analysis (read-only)
+- `.egce/context/` — Project documentation (read and maintain)
+- `.egce/specs/` — Structured requirement specifications
 
-### Verify changes
-```
-egce verify .
-```
-Auto-detects and runs tests (pytest, npm test, go test, cargo test) and
-linters (ruff, eslint, clippy). Use this after making any code changes.
+## Workflow
 
-## Workflow for code tasks
-
-1. Run `egce search` or `egce pipeline` to find relevant code
-2. Read and understand the relevant files
-3. Make minimal, targeted changes
-4. Run `egce verify .` to confirm tests and lint pass
-5. If verification fails, fix the issues and re-verify
+1. Read `.egce/context/` to understand the project
+2. Use `egce search` or `egce pipeline` to find relevant code
+3. For new requirements: analyze existing code, output structured spec with exact API definitions
+4. For development: follow spec exactly, run `egce verify` after each change
+5. After completion: update `.egce/context/` if architecture/APIs/models changed

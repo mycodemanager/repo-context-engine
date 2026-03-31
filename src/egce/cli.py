@@ -1,11 +1,15 @@
 """CLI entry point for EGCE.
 
 Provides subcommands:
+    egce init      — initialize .egce/ directory for a project
+    egce sync      — re-scan and update analysis
     egce scan      — scan a repo and print the symbol map
     egce search    — search for relevant code chunks
     egce pipeline  — full pipeline: search → compress → pack
     egce pack      — assemble context from slot files
     egce verify    — run verification checks
+    egce spec      — manage requirement specs
+    egce context   — view project context files
 """
 
 from __future__ import annotations
@@ -14,6 +18,137 @@ import argparse
 import json
 import sys
 from pathlib import Path
+
+
+def cmd_init(args: argparse.Namespace) -> None:
+    # Import extractors to trigger registration
+    import egce.extractors.fastapi_ext  # noqa: F401
+    import egce.extractors.django_ext  # noqa: F401
+    import egce.extractors.express_ext  # noqa: F401
+    import egce.extractors.react_ext  # noqa: F401
+    import egce.extractors.vue_ext  # noqa: F401
+    from egce.workspace import init_project, init_workspace
+
+    root = Path(args.repo).resolve()
+
+    # Check if this is a workspace (has multiple git repos)
+    sub_repos = [d for d in root.iterdir() if d.is_dir() and (d / ".git").exists()]
+
+    if len(sub_repos) > 1:
+        print(f"Detected workspace with {len(sub_repos)} projects", file=sys.stderr)
+        result = init_workspace(root)
+        print(f"\nWorkspace: {result['workspace']}", file=sys.stderr)
+        for p in result["projects"]:
+            _print_init_stats(p)
+    else:
+        result = init_project(
+            root,
+            include=args.include.split(",") if args.include else None,
+            exclude=args.exclude.split(",") if args.exclude else None,
+        )
+        _print_init_stats(result)
+
+    print("\nDone. AI can now read .egce/analysis/ to generate context files.", file=sys.stderr)
+
+
+def _print_init_stats(stats: dict) -> None:
+    print(f"\n  Project: {stats['project']}", file=sys.stderr)
+    print(f"  Type: {stats['project_type']} ({stats.get('framework') or stats['language']})", file=sys.stderr)
+    print(f"  Files: {stats['files']}, Symbols: {stats['symbols']}", file=sys.stderr)
+    if stats.get("routes"):
+        print(f"  API Routes: {stats['routes']}", file=sys.stderr)
+    if stats.get("models"):
+        print(f"  Data Models: {stats['models']}", file=sys.stderr)
+    if stats.get("pages"):
+        print(f"  Pages: {stats['pages']}", file=sys.stderr)
+    if stats.get("components"):
+        print(f"  Components: {stats['components']}", file=sys.stderr)
+    if stats.get("infra"):
+        print(f"  Infrastructure: {stats['infra']}", file=sys.stderr)
+    if stats.get("env_vars"):
+        print(f"  Env Vars: {stats['env_vars']}", file=sys.stderr)
+
+
+def cmd_sync(args: argparse.Namespace) -> None:
+    import egce.extractors.fastapi_ext  # noqa: F401
+    import egce.extractors.django_ext  # noqa: F401
+    import egce.extractors.express_ext  # noqa: F401
+    import egce.extractors.react_ext  # noqa: F401
+    import egce.extractors.vue_ext  # noqa: F401
+    from egce.workspace import sync_project
+
+    root = Path(args.repo).resolve()
+    result = sync_project(root, check_only=args.check, diff=args.diff)
+
+    if result.get("warnings"):
+        print("Warnings:", file=sys.stderr)
+        for w in result["warnings"]:
+            print(f"  ⚠ {w}", file=sys.stderr)
+
+    if result.get("updated"):
+        print(f"\nUpdated: {result.get('files', 0)} files, "
+              f"{result.get('routes', 0)} routes, "
+              f"{result.get('models', 0)} models", file=sys.stderr)
+    elif args.check:
+        if not result.get("warnings"):
+            print("All context files are up to date.", file=sys.stderr)
+
+
+def cmd_spec(args: argparse.Namespace) -> None:
+    from egce.spec import list_specs, show_spec, update_spec_status
+
+    root = Path(args.repo).resolve()
+
+    if args.spec_action == "list":
+        specs = list_specs(root)
+        if not specs:
+            print("No specs found.", file=sys.stderr)
+            return
+        for s in specs:
+            status = s.get("status", "?")
+            print(f"  [{status:12s}] {s['id']}  {s.get('title', '')}")
+
+    elif args.spec_action == "show":
+        content = show_spec(root, args.spec_id)
+        if content:
+            print(content)
+        else:
+            print(f"Spec not found: {args.spec_id}", file=sys.stderr)
+            sys.exit(1)
+
+    elif args.spec_action == "status":
+        ok = update_spec_status(root, args.spec_id, args.new_status)
+        if ok:
+            print(f"Updated {args.spec_id} → {args.new_status}", file=sys.stderr)
+        else:
+            print(f"Spec not found: {args.spec_id}", file=sys.stderr)
+            sys.exit(1)
+
+
+def cmd_context(args: argparse.Namespace) -> None:
+    root = Path(args.repo).resolve()
+    context_dir = root / ".egce" / "context"
+
+    if not context_dir.exists():
+        print("No .egce/context/ directory. Run 'egce init' first.", file=sys.stderr)
+        sys.exit(1)
+
+    if args.context_action == "list":
+        for f in sorted(context_dir.iterdir()):
+            if f.is_file() and not f.name.startswith("."):
+                size = f.stat().st_size
+                print(f"  {f.name:30s}  {size:>6d} bytes")
+
+    elif args.context_action == "show":
+        target = context_dir / args.name
+        if not target.exists():
+            # Try with .md extension
+            target = context_dir / f"{args.name}.md"
+        if target.exists():
+            print(target.read_text())
+        else:
+            print(f"Context file not found: {args.name}", file=sys.stderr)
+            sys.exit(1)
 
 
 def cmd_scan(args: argparse.Namespace) -> None:
@@ -201,6 +336,18 @@ def main(argv: list[str] | None = None) -> None:
     )
     sub = parser.add_subparsers(dest="command")
 
+    # --- init ---
+    p_init = sub.add_parser("init", help="Initialize .egce/ directory for a project or workspace")
+    p_init.add_argument("repo", nargs="?", default=".", help="Path to project or workspace root")
+    p_init.add_argument("--include", help="Comma-separated include patterns")
+    p_init.add_argument("--exclude", help="Comma-separated exclude patterns")
+
+    # --- sync ---
+    p_sync = sub.add_parser("sync", help="Re-scan and update analysis files")
+    p_sync.add_argument("repo", nargs="?", default=".", help="Path to project root")
+    p_sync.add_argument("--check", action="store_true", help="Check context freshness without updating")
+    p_sync.add_argument("--diff", action="store_true", help="Show what changed since last sync")
+
     # --- scan ---
     p_scan = sub.add_parser("scan", help="Scan a repository and output its symbol map")
     p_scan.add_argument("repo", nargs="?", default=".", help="Path to repository root")
@@ -242,9 +389,32 @@ def main(argv: list[str] | None = None) -> None:
     p_pipe.add_argument("--exclude", help="Comma-separated exclude patterns")
     p_pipe.add_argument("--stats", action="store_true", help="Print stats instead of prompt")
 
+    # --- spec ---
+    p_spec = sub.add_parser("spec", help="Manage requirement specs")
+    p_spec.add_argument("repo", nargs="?", default=".", help="Path to project root")
+    spec_sub = p_spec.add_subparsers(dest="spec_action")
+    spec_sub.add_parser("list", help="List all specs")
+    p_spec_show = spec_sub.add_parser("show", help="Show a spec")
+    p_spec_show.add_argument("spec_id", help="Spec ID or filename")
+    p_spec_status = spec_sub.add_parser("status", help="Update spec status")
+    p_spec_status.add_argument("spec_id", help="Spec ID")
+    p_spec_status.add_argument("new_status", help="New status (draft/approved/in_progress/done)")
+
+    # --- context ---
+    p_ctx = sub.add_parser("context", help="View project context files")
+    p_ctx.add_argument("repo", nargs="?", default=".", help="Path to project root")
+    ctx_sub = p_ctx.add_subparsers(dest="context_action")
+    ctx_sub.add_parser("list", help="List context files")
+    p_ctx_show = ctx_sub.add_parser("show", help="Show a context file")
+    p_ctx_show.add_argument("name", help="Context file name (e.g. architecture or architecture.md)")
+
     args = parser.parse_args(argv)
 
-    if args.command == "scan":
+    if args.command == "init":
+        cmd_init(args)
+    elif args.command == "sync":
+        cmd_sync(args)
+    elif args.command == "scan":
         cmd_scan(args)
     elif args.command == "search":
         cmd_search(args)
@@ -254,6 +424,10 @@ def main(argv: list[str] | None = None) -> None:
         cmd_pack(args)
     elif args.command == "verify":
         cmd_verify(args)
+    elif args.command == "spec":
+        cmd_spec(args)
+    elif args.command == "context":
+        cmd_context(args)
     else:
         parser.print_help()
         sys.exit(1)
