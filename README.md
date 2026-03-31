@@ -30,38 +30,41 @@ EGCE 是一个研发上下文引擎。安装后，你可以在 Claude Code / Cur
 pip install git+https://github.com/mycodemanager/repo-context-engine.git
 ```
 
-安装完成后，验证一下：
+安装完成后，执行配置命令（只需要做一次）：
 
 ```bash
-egce --help
+egce setup
 ```
 
-如果看到帮助信息，说明安装成功。
+这个命令会自动把 EGCE 的工作指令写入 AI 工具的全局配置。执行后 AI 就知道：
+- 用户说"创建工作区"时该怎么做
+- 怎么调用 EGCE 命令扫描代码
+- 怎么按规范生成需求规格
+- 怎么按流程开发和验证
 
 ### 第 2 步：打开 AI 工具
 
 打开你常用的 AI 编码工具：
 
-- **Claude Code**（推荐）
-- **Cursor**
-- **OpenAI Codex**
+- **Claude Code**（推荐，egce setup 已自动配置）
+- **Cursor**（需要手动把 `templates/CLAUDE.md` 放到项目根目录）
+- **OpenAI Codex**（需要手动把 `templates/AGENTS.md` 放到项目根目录）
 
 ### 第 3 步：对话开始工作
 
-直接告诉 AI 你的项目信息，AI 会自动完成所有初始化：
+直接告诉 AI 你的项目信息：
 
 ```
 你：我要开发一个项目，后端仓库是 git@github.com:xxx/backend.git，
-    前端仓库是 git@github.com:xxx/frontend.git，
-    帮我创建工作区并初始化
+    前端仓库是 git@github.com:xxx/frontend.git
 ```
 
 AI 会自动执行：
 1. 询问你工作区放在哪个位置
 2. 创建目录，拉取代码
-3. 扫描代码，提取 API 接口、数据模型、组件结构
-4. 生成项目上下文文档
-5. 告诉你可以开始工作了
+3. 运行 `egce init` 扫描代码，提取 API 接口、数据模型、组件结构
+4. 基于扫描结果生成项目上下文文档
+5. 让你审核后，告诉你可以开始工作了
 
 **之后你就可以直接对话做事了。**
 
@@ -219,6 +222,7 @@ Python, JavaScript, TypeScript, Go, Rust, Java
 
 | 命令 | 作用 |
 |---|---|
+| `egce setup` | 首次安装后执行，配置 AI 工具的全局指令 |
 | `egce init .` | 初始化项目，扫描代码，生成 .egce/ 目录 |
 | `egce sync .` | 重新扫描，更新分析结果 |
 | `egce sync . --check` | 检查项目文档是否过期 |

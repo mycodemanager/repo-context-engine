@@ -20,6 +20,111 @@ import sys
 from pathlib import Path
 
 
+def cmd_setup(args: argparse.Namespace) -> None:
+    """Install EGCE global instructions for AI tools."""
+    home = Path.home()
+
+    # --- Claude Code global CLAUDE.md ---
+    claude_dir = home / ".claude"
+    claude_dir.mkdir(exist_ok=True)
+    claude_md = claude_dir / "CLAUDE.md"
+
+    # Load the global instruction template
+    template_path = Path(__file__).parent.parent.parent / "templates" / "global-claude-md.md"
+    if not template_path.exists():
+        # Fallback: use pkg_resources or embedded content
+        template_path = None
+
+    egce_block_start = "<!-- EGCE-START -->"
+    egce_block_end = "<!-- EGCE-END -->"
+
+    if template_path and template_path.exists():
+        egce_content = template_path.read_text()
+    else:
+        egce_content = _EMBEDDED_GLOBAL_INSTRUCTIONS
+
+    new_block = f"{egce_block_start}\n{egce_content}\n{egce_block_end}"
+
+    if claude_md.exists():
+        existing = claude_md.read_text()
+        if egce_block_start in existing:
+            # Update existing block
+            import re
+            pattern = re.escape(egce_block_start) + r".*?" + re.escape(egce_block_end)
+            updated = re.sub(pattern, new_block, existing, flags=re.DOTALL)
+            claude_md.write_text(updated)
+            print(f"Updated EGCE instructions in {claude_md}", file=sys.stderr)
+        else:
+            # Append
+            claude_md.write_text(existing.rstrip() + "\n\n" + new_block + "\n")
+            print(f"Added EGCE instructions to {claude_md}", file=sys.stderr)
+    else:
+        claude_md.write_text(new_block + "\n")
+        print(f"Created {claude_md} with EGCE instructions", file=sys.stderr)
+
+    # --- Claude Code MCP config ---
+    settings_path = claude_dir / "settings.json"
+    mcp_configured = False
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text())
+            if "mcpServers" in settings and "egce" in settings["mcpServers"]:
+                mcp_configured = True
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    if not mcp_configured:
+        print(f"\nTo also enable EGCE as a native Claude Code tool, add to {settings_path}:", file=sys.stderr)
+        print('  "mcpServers": { "egce": { "command": "python3", "args": ["-m", "egce.mcp_server"] } }',
+              file=sys.stderr)
+
+    print("\nSetup complete. Open Claude Code and start chatting.", file=sys.stderr)
+
+
+_EMBEDDED_GLOBAL_INSTRUCTIONS = """\
+# EGCE — Evidence-Grounded Context Engine
+
+You have EGCE installed globally. Use it to manage code project context.
+
+## When the user wants to start a new project
+
+When the user provides repository URLs and wants to create a workspace:
+
+1. Ask: "你想把工作区创建在哪个目录？"
+2. Create the workspace directory
+3. git clone each repository into the workspace
+4. Run `egce init <workspace_path>` to scan all projects and generate analysis
+5. Read the generated `.egce/analysis/` files in each project
+6. Based on the analysis, generate `.egce/context/` files (architecture.md, modules.md, api-contracts.md, data-models.md, conventions.md)
+7. Show the user the generated context and ask them to review
+
+## When working on an existing project with .egce/ directory
+
+1. Read `.egce/context/` to understand the project
+2. Use `egce search "<query>" .` to find relevant code
+3. Use `egce pipeline "<task>" .` to get compressed context for a specific task
+
+## When the user describes a requirement
+
+1. Read `.egce/context/` for existing architecture and conventions
+2. Run `egce search` in each project to find related existing code
+3. Output a structured spec (YAML) to workspace `.egce/specs/` with precise API definitions, frontend changes, affected files, testing requirements
+4. Ask the user to review and approve
+
+## When developing from a spec
+
+1. Follow the spec exactly for interface definitions
+2. Run `egce pipeline "<task>"` before each task for context
+3. Follow `.egce/context/conventions.md` for code style
+4. Run `egce verify .` after each task
+5. After all tasks: run `egce sync . --check` and update stale context files
+
+## Commands
+
+egce init, egce sync, egce scan, egce search, egce pipeline, egce verify, egce spec list/show/status, egce context list/show
+"""
+
+
 def cmd_init(args: argparse.Namespace) -> None:
     # Import extractors to trigger registration
     import egce.extractors.fastapi_ext  # noqa: F401
@@ -344,6 +449,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     sub = parser.add_subparsers(dest="command")
 
+    # --- setup ---
+    sub.add_parser("setup", help="Install EGCE global instructions for AI tools (Claude Code, Cursor, etc.)")
+
     # --- init ---
     p_init = sub.add_parser("init", help="Initialize .egce/ directory for a project or workspace")
     p_init.add_argument("repo", nargs="?", default=".", help="Path to project or workspace root")
@@ -418,7 +526,9 @@ def main(argv: list[str] | None = None) -> None:
 
     args = parser.parse_args(argv)
 
-    if args.command == "init":
+    if args.command == "setup":
+        cmd_setup(args)
+    elif args.command == "init":
         cmd_init(args)
     elif args.command == "sync":
         cmd_sync(args)
