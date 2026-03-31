@@ -27,8 +27,8 @@ pip install egce
 或从源码安装：
 
 ```bash
-git clone https://github.com/yourname/egce.git
-cd egce
+git clone https://github.com/mycodemanager/repo-context-engine.git
+cd repo-context-engine
 pip install -e ".[dev]"
 ```
 
@@ -87,11 +87,14 @@ egce scan /path/to/repo --json
 # 只看顶层 symbol（不展开方法）
 egce scan /path/to/repo --depth 1
 
+# 搜索与任务相关的代码
+egce search "authentication token validation" /path/to/repo
+
+# 一行跑完全流程：检索 → 压缩 → 打包
+egce pipeline "fix the login bug" /path/to/repo --budget 8000
+
 # 运行验证（自动检测 pytest/ruff/eslint 等）
 egce verify /path/to/repo
-
-# 验证结果输出为 JSON
-egce verify /path/to/repo --json
 
 # 组装 prompt（从文件读取 slot 内容）
 egce pack --budget 8000 \
@@ -99,6 +102,56 @@ egce pack --budget 8000 \
     --slot task=task.txt \
     --slot evidence=evidence.txt
 ```
+
+### 用法三：在 Claude Code 中对话使用（MCP Server）
+
+把 EGCE 注册为 Claude Code 的 MCP 工具，对话时直接调用：
+
+**配置方法** — 在 `~/.claude/settings.json` 中添加：
+
+```json
+{
+  "mcpServers": {
+    "egce": {
+      "command": "python3",
+      "args": ["-m", "egce.mcp_server"]
+    }
+  }
+}
+```
+
+配置后重启 Claude Code，即可在对话中直接使用这些工具：
+
+- `egce_scan` — 扫描仓库结构
+- `egce_search` — 搜索相关代码
+- `egce_pipeline` — 全流程：检索 → 压缩 → 打包
+- `egce_verify` — 运行测试和 lint
+
+对话示例：
+```
+你: 帮我理解这个仓库的结构
+Claude: (自动调用 egce_scan) 这个仓库有 48 个核心文件...
+
+你: 找一下和用户认证相关的代码
+Claude: (自动调用 egce_search) 找到 10 个相关代码片段...
+
+你: 修好这个 bug 之后帮我跑一下测试
+Claude: (自动调用 egce_verify) 所有测试通过 ✓
+```
+
+### 用法四：在 Codex / Cursor 等工具中使用（指令文件）
+
+把 EGCE 的指令文件拷到你的项目根目录，AI 工具会自动读取并学会使用 `egce` 命令：
+
+```bash
+# 适用于 Claude Code
+cp templates/CLAUDE.md /path/to/your/project/CLAUDE.md
+
+# 适用于 OpenAI Codex
+cp templates/AGENTS.md /path/to/your/project/AGENTS.md
+```
+
+放好之后，AI 在处理任务时会自动调用 `egce search`、`egce pipeline`、`egce verify` 等命令。无需额外配置。
 
 ## 核心 API
 
@@ -307,6 +360,10 @@ src/egce/
   packer.py          # 槽位制 token 预算打包器
   verify.py          # 自动检测并运行 test/lint
   cli.py             # 命令行工具
+  mcp_server.py      # MCP Server（Claude Code 原生集成）
+templates/
+  CLAUDE.md          # Claude Code 指令模板
+  AGENTS.md          # Codex / 其他 AI 工具指令模板
 ```
 
 ## 实测数据（FastAPI, 109K 行代码）

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "egce": {
+      "command": "python3",
+      "args": ["-m", "egce.mcp_server"]
+    }
+  }
+}
