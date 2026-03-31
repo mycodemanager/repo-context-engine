@@ -386,3 +386,115 @@ class Retriever:
             ))
 
         return results
+
+
+# ---------------------------------------------------------------------------
+# Multi-project workspace retriever
+# ---------------------------------------------------------------------------
+
+
+class WorkspaceRetriever:
+    """Index and search across multiple projects in a workspace.
+
+    Usage::
+
+        wr = WorkspaceRetriever.from_workspace("~/workspace/my-project")
+        wr.index()
+        chunks = wr.search("authentication", top_k=10)
+        # → chunks have source_uri like "backend:src/auth.py"
+    """
+
+    def __init__(self) -> None:
+        self._retrievers: dict[str, Retriever] = {}
+        self._repo_results: dict[str, RepoMapResult] = {}
+
+    @classmethod
+    def from_workspace(cls, workspace_root: str | Path) -> "WorkspaceRetriever":
+        """Create from a workspace directory containing workspace.yaml."""
+        root = Path(workspace_root).resolve()
+        wr = cls()
+
+        ws_yaml = root / ".egce" / "workspace.yaml"
+        if ws_yaml.exists():
+            # Parse workspace.yaml for project paths
+            for line in ws_yaml.read_text().splitlines():
+                line = line.strip()
+                if line.startswith("path:"):
+                    proj_path = line.split(":", 1)[1].strip()
+                    full_path = root / proj_path
+                    if full_path.exists():
+                        name = full_path.name
+                        wr._retrievers[name] = Retriever(full_path)
+        else:
+            # Auto-detect: scan for git repos in subdirectories
+            for entry in sorted(root.iterdir()):
+                if entry.is_dir() and (entry / ".git").exists():
+                    wr._retrievers[entry.name] = Retriever(entry)
+
+        # If nothing found, treat root as single project
+        if not wr._retrievers:
+            wr._retrievers[root.name] = Retriever(root)
+
+        return wr
+
+    def index(
+        self,
+        *,
+        exclude: Sequence[str] | None = None,
+    ) -> None:
+        """Index all projects."""
+        for name, ret in self._retrievers.items():
+            ret.index(exclude=exclude)
+            if ret.repo_map_result:
+                self._repo_results[name] = ret.repo_map_result
+
+    def search(
+        self,
+        query: str,
+        *,
+        top_k: int = 10,
+        **kwargs,
+    ) -> list[EvidenceChunk]:
+        """Search across all projects, merge and re-rank results.
+
+        Results have ``source_uri`` prefixed with project name
+        (e.g. "backend:src/auth.py").
+        """
+        all_chunks: list[EvidenceChunk] = []
+
+        for name, ret in self._retrievers.items():
+            chunks = ret.search(query, top_k=top_k, **kwargs)
+            for c in chunks:
+                # Prefix with project name
+                prefixed = EvidenceChunk(
+                    source_uri=f"{name}:{c.source_uri}",
+                    source_type=c.source_type,
+                    start_line=c.start_line,
+                    end_line=c.end_line,
+                    content=c.content,
+                    symbols=c.symbols,
+                    score=c.score,
+                )
+                all_chunks.append(prefixed)
+
+        # Re-rank by score across all projects
+        all_chunks.sort(key=lambda c: c.score, reverse=True)
+        return all_chunks[:top_k]
+
+    @property
+    def repo_map_results(self) -> dict[str, RepoMapResult]:
+        return dict(self._repo_results)
+
+    def focused_text(self, focus_files: set[str]) -> str:
+        """Build a combined focused repo map across all projects."""
+        parts: list[str] = []
+        for name, result in self._repo_results.items():
+            # Extract focus files for this project
+            project_focus = set()
+            for f in focus_files:
+                if f.startswith(f"{name}:"):
+                    project_focus.add(f[len(name) + 1:])
+            if project_focus:
+                text = result.focused_text(project_focus)
+                parts.append(f"# Project: {name}\n\n{text}")
+        return "\n\n".join(parts)

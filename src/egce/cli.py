@@ -277,7 +277,7 @@ def cmd_search(args: argparse.Namespace) -> None:
 
 def cmd_pipeline(args: argparse.Namespace) -> None:
     from egce.compress import compress_chunks
-    from egce.packer import ContextPacker, Priority, count_tokens
+    from egce.packer import ContextPacker, Priority, count_tokens, load_project_context
     from egce.retrieve import Retriever
 
     exclude = args.exclude.split(",") if args.exclude else None
@@ -305,8 +305,16 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
     focus_files = {c.source_uri for c in chunks}
     focused_map = repo_result.focused_text(focus_files) if repo_result else ""
 
-    # 4. Pack
+    # 4. Pack (with auto-loaded project context and spec)
     packer = ContextPacker(token_budget=args.budget)
+    load_project_context(packer, args.repo)
+    ctx_tok = packer.get_slot("project_context")
+    spec_tok = packer.get_slot("spec")
+    if ctx_tok and ctx_tok.content:
+        print(f"Loaded project context: {ctx_tok.tokens} tokens", file=sys.stderr)
+    if spec_tok and spec_tok.content:
+        print(f"Loaded active spec: {spec_tok.tokens} tokens", file=sys.stderr)
+
     packer.set_slot("task", args.task, priority=Priority.HIGH)
     packer.set_slot("repo_map", focused_map, priority=Priority.NORMAL)
     packer.set_slot(

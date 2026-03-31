@@ -79,14 +79,16 @@ class Slot:
 # ---------------------------------------------------------------------------
 
 DEFAULT_SLOTS: list[tuple[str, float, Priority]] = [
-    ("system", 0.10, Priority.CRITICAL),
-    ("task", 0.10, Priority.HIGH),
-    ("pinned_facts", 0.10, Priority.HIGH),
+    ("system", 0.08, Priority.CRITICAL),
+    ("task", 0.08, Priority.HIGH),
+    ("pinned_facts", 0.08, Priority.HIGH),
+    ("project_context", 0.12, Priority.HIGH),
+    ("spec", 0.08, Priority.HIGH),
     ("repo_map", 0.10, Priority.NORMAL),
-    ("evidence", 0.40, Priority.NORMAL),
-    ("memory", 0.10, Priority.LOW),
-    ("verifier_feedback", 0.05, Priority.HIGH),
-    ("output_contract", 0.05, Priority.CRITICAL),
+    ("evidence", 0.35, Priority.NORMAL),
+    ("memory", 0.05, Priority.LOW),
+    ("verifier_feedback", 0.03, Priority.HIGH),
+    ("output_contract", 0.03, Priority.CRITICAL),
 ]
 
 
@@ -244,3 +246,113 @@ def _default_truncate(text: str, max_tokens: int) -> str:
     # Keep the first max_tokens-10 tokens and append a marker
     truncated = enc.decode(tokens[: max_tokens - 5])
     return truncated + "\n... [truncated]"
+
+
+# ---------------------------------------------------------------------------
+# Auto-load .egce/ context and specs
+# ---------------------------------------------------------------------------
+
+
+def load_project_context(packer: ContextPacker, root: str) -> None:
+    """Load .egce/context/ files and active spec into a packer.
+
+    Scans one or more project roots for .egce/ directories and injects
+    their content into the ``project_context`` and ``spec`` slots.
+
+    Parameters
+    ----------
+    packer : the ContextPacker to populate
+    root : project root or workspace root path
+    """
+    from pathlib import Path
+
+    root = Path(root).resolve()
+    context_parts: list[str] = []
+    spec_parts: list[str] = []
+
+    # Collect all .egce dirs (workspace may have multiple)
+    egce_dirs: list[tuple[str, Path]] = []
+
+    # Check workspace level
+    ws_egce = root / ".egce"
+    if ws_egce.exists():
+        # Check for workspace.yaml → multi-project
+        ws_yaml = ws_egce / "workspace.yaml"
+        if ws_yaml.exists():
+            # Scan sub-projects
+            for entry in sorted(root.iterdir()):
+                sub_egce = entry / ".egce"
+                if entry.is_dir() and sub_egce.exists():
+                    egce_dirs.append((entry.name, sub_egce))
+            # Also load workspace-level specs
+            ws_specs = ws_egce / "specs"
+            if ws_specs.exists():
+                spec_parts.extend(_load_active_specs(ws_specs))
+        else:
+            # Single project
+            egce_dirs.append((root.name, ws_egce))
+
+    # Load context from each project
+    for project_name, egce_dir in egce_dirs:
+        context_dir = egce_dir / "context"
+        if context_dir.exists():
+            parts = _load_context_dir(context_dir, project_name, len(egce_dirs) > 1)
+            context_parts.extend(parts)
+
+        # Project-level specs
+        specs_dir = egce_dir / "specs"
+        if specs_dir.exists():
+            spec_parts.extend(_load_active_specs(specs_dir))
+
+    # Set slots
+    if context_parts:
+        packer.set_slot("project_context", "\n\n".join(context_parts), priority=Priority.HIGH)
+
+    if spec_parts:
+        packer.set_slot("spec", "\n\n".join(spec_parts), priority=Priority.HIGH)
+
+
+def _load_context_dir(context_dir, project_name: str, multi_project: bool) -> list[str]:
+    """Read all .md files from a context directory."""
+    parts: list[str] = []
+    # Try config-defined priority order first
+    config_path = context_dir.parent / "config.yaml"
+    ordered_files: list[str] = []
+    if config_path.exists():
+        for line in config_path.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("- context/") and line.endswith(".md"):
+                fname = line.split("context/")[-1]
+                ordered_files.append(fname)
+
+    # Fall back to sorted directory listing
+    if not ordered_files:
+        ordered_files = sorted(f.name for f in context_dir.iterdir() if f.suffix == ".md")
+
+    for fname in ordered_files:
+        fpath = context_dir / fname
+        if fpath.exists():
+            content = fpath.read_text().strip()
+            # Skip template files that haven't been filled in
+            if content and "<!-- " not in content.split("\n")[-1]:
+                prefix = f"[{project_name}] " if multi_project else ""
+                parts.append(f"## {prefix}{fname}\n\n{content}")
+
+    return parts
+
+
+def _load_active_specs(specs_dir) -> list[str]:
+    """Load specs with status in_progress or approved."""
+    parts: list[str] = []
+    for f in sorted(specs_dir.iterdir()):
+        if f.suffix not in (".yaml", ".yml"):
+            continue
+        content = f.read_text()
+        # Quick check for active status
+        for line in content.splitlines()[:15]:
+            if line.startswith("status:"):
+                status = line.split(":", 1)[1].strip()
+                if status in ("approved", "in_progress"):
+                    parts.append(f"## Spec: {f.stem}\n\n```yaml\n{content}\n```")
+                break
+    return parts
