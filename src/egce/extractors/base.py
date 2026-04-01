@@ -130,6 +130,7 @@ class AnalysisResult:
     api_calls: list[ApiCallInfo] = field(default_factory=list)
     infra: list[InfraInfo] = field(default_factory=list)
     env_vars: list[EnvVarInfo] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     # --------------- rendering ---------------
 
@@ -520,12 +521,50 @@ def run_analysis(
 
     # Run each extractor
     for ext in extractors:
-        result.routes.extend(ext.extract_routes(root, files))
-        result.models.extend(ext.extract_models(root, files))
-        result.pages.extend(ext.extract_pages(root, files))
-        result.components.extend(ext.extract_components(root, files))
-        result.stores.extend(ext.extract_stores(root, files))
-        result.api_calls.extend(ext.extract_api_calls(root, files))
+        try:
+            result.routes.extend(ext.extract_routes(root, files))
+        except Exception as e:
+            result.warnings.append(f"[{ext.name}] route extraction failed: {e}")
+        try:
+            result.models.extend(ext.extract_models(root, files))
+        except Exception as e:
+            result.warnings.append(f"[{ext.name}] model extraction failed: {e}")
+        try:
+            result.pages.extend(ext.extract_pages(root, files))
+        except Exception as e:
+            result.warnings.append(f"[{ext.name}] page extraction failed: {e}")
+        try:
+            result.components.extend(ext.extract_components(root, files))
+        except Exception as e:
+            result.warnings.append(f"[{ext.name}] component extraction failed: {e}")
+        try:
+            result.stores.extend(ext.extract_stores(root, files))
+        except Exception as e:
+            result.warnings.append(f"[{ext.name}] store extraction failed: {e}")
+        try:
+            result.api_calls.extend(ext.extract_api_calls(root, files))
+        except Exception as e:
+            result.warnings.append(f"[{ext.name}] API call extraction failed: {e}")
+
+    # Check for suspiciously empty results from detected frameworks
+    for ext in extractors:
+        if ext.project_type == "backend":
+            if not result.routes:
+                result.warnings.append(
+                    f"[{ext.name}] framework detected but 0 routes extracted — "
+                    f"check if route definitions follow standard patterns"
+                )
+            if not result.models:
+                result.warnings.append(
+                    f"[{ext.name}] framework detected but 0 models extracted — "
+                    f"check if model definitions follow standard patterns"
+                )
+        elif ext.project_type == "frontend":
+            if not result.components:
+                result.warnings.append(
+                    f"[{ext.name}] framework detected but 0 components extracted — "
+                    f"check if component definitions follow standard patterns"
+                )
 
     # Framework-independent scans
     result.infra = _scan_infra(root)

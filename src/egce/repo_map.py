@@ -8,12 +8,15 @@ tokens for use in an LLM prompt.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
 import tree_sitter
+
+logger = logging.getLogger("egce")
 
 # ---------------------------------------------------------------------------
 # Language registry — lazy-loaded
@@ -60,7 +63,11 @@ def _get_language(name: str) -> tree_sitter.Language | None:
             lang = tree_sitter.Language(mod.language())
         _LANG_CACHE[name] = lang
         return lang
-    except Exception:
+    except ImportError:
+        logger.debug("tree-sitter language package not installed: %s", mod_name)
+        return None
+    except Exception as e:
+        logger.warning("Failed to load tree-sitter language %s: %s", name, e)
         return None
 
 

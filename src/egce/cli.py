@@ -16,8 +16,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
+
+logger = logging.getLogger("egce")
 
 
 def cmd_setup(args: argparse.Namespace) -> None:
@@ -94,9 +97,10 @@ When the user provides repository URLs and wants to create a workspace:
 2. Create the workspace directory
 3. git clone each repository into the workspace
 4. Run `egce init <workspace_path>` to scan all projects and generate analysis
-5. Read the generated `.egce/analysis/` files in each project
-6. Based on the analysis, generate `.egce/context/` files (architecture.md, modules.md, api-contracts.md, data-models.md, conventions.md)
-7. Show the user the generated context and ask them to review
+5. Check stderr for WARNING lines — if a framework is detected but extraction is empty, investigate
+6. Read the generated `.egce/analysis/` files in each project
+7. Based on the analysis, generate `.egce/context/` files (architecture.md, modules.md, api-contracts.md, data-models.md, conventions.md)
+8. Show the user the generated context and ask them to review
 
 ## When working on an existing project with .egce/ directory
 
@@ -121,12 +125,15 @@ When the user provides repository URLs and wants to create a workspace:
 4. Run `egce pipeline "<task>"` before each task for context
 5. Follow `.egce/context/conventions.md` for code style
 6. Run `egce verify .` after each task
-7. After all tasks: run `egce sync . --check` and update stale context files
+7. If verify reports stale context, update the relevant `.egce/context/` files before proceeding
+8. After all tasks: run `egce sync . --check` and update stale context files
 
 ## Commands
 
 egce init, egce sync, egce scan, egce search, egce pipeline, egce verify,
 egce spec list/show/status/validate/test, egce context list/show
+
+All commands support --verbose / -v for debug logging.
 """
 
 
@@ -177,6 +184,8 @@ def _print_init_stats(stats: dict) -> None:
         print(f"  Infrastructure: {stats['infra']}", file=sys.stderr)
     if stats.get("env_vars"):
         print(f"  Env Vars: {stats['env_vars']}", file=sys.stderr)
+    for w in stats.get("warnings") or []:
+        print(f"  WARNING: {w}", file=sys.stderr)
 
 
 def cmd_sync(args: argparse.Namespace) -> None:
@@ -518,6 +527,7 @@ def main(argv: list[str] | None = None) -> None:
         prog="egce",
         description="Evidence-Grounded Context Engine for large code repositories",
     )
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable debug logging")
     sub = parser.add_subparsers(dest="command")
 
     # --- setup ---
@@ -601,6 +611,14 @@ def main(argv: list[str] | None = None) -> None:
     p_ctx_show.add_argument("name", help="Context file name (e.g. architecture or architecture.md)")
 
     args = parser.parse_args(argv)
+
+    # Configure logging
+    level = logging.DEBUG if getattr(args, "verbose", False) else logging.WARNING
+    logging.basicConfig(
+        format="%(name)s: %(message)s",
+        level=level,
+        stream=sys.stderr,
+    )
 
     if args.command == "setup":
         cmd_setup(args)

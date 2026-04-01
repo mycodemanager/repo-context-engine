@@ -23,8 +23,11 @@ Configure in Claude Code settings (~/.claude/settings.json):
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import traceback
+
+logger = logging.getLogger("egce.mcp")
 
 # ---------------------------------------------------------------------------
 # JSON-RPC helpers
@@ -327,7 +330,7 @@ def _handle_request(msg: dict) -> dict | None:
         return _rpc_response(id, {
             "protocolVersion": "2024-11-05",
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "egce", "version": "0.1.0"},
+            "serverInfo": {"name": "egce", "version": "0.2.0"},
         })
 
     elif method == "notifications/initialized":
@@ -381,11 +384,13 @@ def main() -> None:
                 sys.stdout.write(json.dumps(response) + "\n")
                 sys.stdout.flush()
 
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            logger.debug("Invalid JSON from stdin: %s", e)
             continue
         except KeyboardInterrupt:
             break
         except Exception:
+            logger.warning("Unexpected error in MCP server loop", exc_info=True)
             continue
 
 
