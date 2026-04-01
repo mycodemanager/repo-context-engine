@@ -200,7 +200,13 @@ def cmd_sync(args: argparse.Namespace) -> None:
 
 
 def cmd_spec(args: argparse.Namespace) -> None:
-    from egce.spec import list_specs, show_spec, update_spec_status
+    from egce.spec import (
+        generate_test_skeleton,
+        list_specs,
+        show_spec,
+        update_spec_status,
+        validate_spec,
+    )
 
     root = Path(args.repo).resolve()
 
@@ -228,6 +234,27 @@ def cmd_spec(args: argparse.Namespace) -> None:
         else:
             print(f"Spec not found: {args.spec_id}", file=sys.stderr)
             sys.exit(1)
+
+    elif args.spec_action == "validate":
+        result = validate_spec(root, args.spec_id)
+        print(result.to_text())
+        if not result.passed:
+            sys.exit(1)
+
+    elif args.spec_action == "test":
+        files = generate_test_skeleton(root, args.spec_id)
+        if not files:
+            print("No test cases found in spec.", file=sys.stderr)
+            sys.exit(1)
+        for fname, code in files.items():
+            if args.output_dir:
+                out = Path(args.output_dir)
+                out.mkdir(parents=True, exist_ok=True)
+                (out / fname).write_text(code)
+                print(f"  Generated: {out / fname}", file=sys.stderr)
+            else:
+                print(f"# === {fname} ===")
+                print(code)
 
 
 def cmd_context(args: argparse.Namespace) -> None:
@@ -381,44 +408,67 @@ def cmd_search(args: argparse.Namespace) -> None:
 
 
 def cmd_pipeline(args: argparse.Namespace) -> None:
+    import time as _time
+
     from egce.compress import compress_chunks
     from egce.packer import ContextPacker, Priority, count_tokens, load_project_context
     from egce.retrieve import Retriever
+    from egce.telemetry import Telemetry
 
     exclude = args.exclude.split(",") if args.exclude else None
+    tel = Telemetry(args.repo)
+    trace = tel.start_trace(args.task, args.repo)
+    trace.token_budget = args.budget
+    t_total = _time.monotonic()
 
     # 1. Index & search
     print("Indexing...", file=sys.stderr)
+    t0 = _time.monotonic()
     retriever = Retriever(args.repo)
     retriever.index(exclude=exclude)
+    trace.index_time_s = round(_time.monotonic() - t0, 2)
 
     print(f"Searching: \"{args.task}\"", file=sys.stderr)
+    t0 = _time.monotonic()
     chunks = retriever.search(args.task, top_k=args.top_k)
+    trace.search_time_s = round(_time.monotonic() - t0, 3)
 
     if not chunks:
         print("No relevant code found.", file=sys.stderr)
         sys.exit(0)
 
-    # 2. Compress
-    compressed = compress_chunks(chunks, args.task, target_ratio=0.5)
+    trace.chunks_retrieved = len(chunks)
     raw_tok = sum(count_tokens(c.content) for c in chunks)
+    trace.chunks_total_tokens = raw_tok
+
+    # 2. Compress
+    t0 = _time.monotonic()
+    compressed = compress_chunks(chunks, args.task, target_ratio=0.5)
+    trace.compress_time_s = round(_time.monotonic() - t0, 3)
     comp_tok = sum(count_tokens(c.content) for c in compressed)
+    trace.chunks_after_compression = len(compressed)
+    trace.compressed_tokens = comp_tok
+    trace.compression_ratio = round(comp_tok / raw_tok, 3) if raw_tok else 0
     print(f"Compressed: {raw_tok} → {comp_tok} tokens", file=sys.stderr)
 
     # 3. Focused repo map
     repo_result = retriever.repo_map_result
     focus_files = {c.source_uri for c in chunks}
     focused_map = repo_result.focused_text(focus_files) if repo_result else ""
+    trace.repo_map_tokens = count_tokens(focused_map)
 
     # 4. Pack (with auto-loaded project context and spec)
+    t0 = _time.monotonic()
     packer = ContextPacker(token_budget=args.budget)
     load_project_context(packer, args.repo)
-    ctx_tok = packer.get_slot("project_context")
-    spec_tok = packer.get_slot("spec")
-    if ctx_tok and ctx_tok.content:
-        print(f"Loaded project context: {ctx_tok.tokens} tokens", file=sys.stderr)
-    if spec_tok and spec_tok.content:
-        print(f"Loaded active spec: {spec_tok.tokens} tokens", file=sys.stderr)
+    ctx_slot = packer.get_slot("project_context")
+    spec_slot = packer.get_slot("spec")
+    if ctx_slot and ctx_slot.content:
+        trace.project_context_tokens = ctx_slot.tokens
+        print(f"Loaded project context: {ctx_slot.tokens} tokens", file=sys.stderr)
+    if spec_slot and spec_slot.content:
+        trace.spec_tokens = spec_slot.tokens
+        print(f"Loaded active spec: {spec_slot.tokens} tokens", file=sys.stderr)
 
     packer.set_slot("task", args.task, priority=Priority.HIGH)
     packer.set_slot("repo_map", focused_map, priority=Priority.NORMAL)
@@ -429,12 +479,28 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
     )
 
     prompt = packer.build()
+    trace.pack_time_s = round(_time.monotonic() - t0, 3)
+
+    stats = packer.stats()
+    trace.total_input_tokens = stats["total_before_trim"]
+    trace.packed_tokens = count_tokens(prompt)
+    trace.over_budget = stats["over_budget"]
+    trace.total_time_s = round(_time.monotonic() - t_total, 2)
+
+    # Save telemetry
+    tel.save_trace(trace)
 
     if args.stats:
-        stats = packer.stats()
         stats["search_results"] = len(chunks)
         stats["focus_files"] = len(focus_files)
         stats["compression"] = f"{raw_tok} → {comp_tok}"
+        stats["telemetry"] = {
+            "index_time": trace.index_time_s,
+            "search_time": trace.search_time_s,
+            "compress_time": trace.compress_time_s,
+            "pack_time": trace.pack_time_s,
+            "total_time": trace.total_time_s,
+        }
         json.dump(stats, sys.stdout, indent=2)
         print()
     else:
@@ -515,6 +581,11 @@ def main(argv: list[str] | None = None) -> None:
     p_spec_status = spec_sub.add_parser("status", help="Update spec status")
     p_spec_status.add_argument("spec_id", help="Spec ID")
     p_spec_status.add_argument("new_status", help="New status (draft/approved/in_progress/done)")
+    p_spec_validate = spec_sub.add_parser("validate", help="Check spec for self-containment issues")
+    p_spec_validate.add_argument("spec_id", help="Spec ID to validate")
+    p_spec_test = spec_sub.add_parser("test", help="Generate test skeleton from spec")
+    p_spec_test.add_argument("spec_id", help="Spec ID")
+    p_spec_test.add_argument("--output-dir", help="Directory to write test files (default: stdout)")
 
     # --- context ---
     p_ctx = sub.add_parser("context", help="View project context files")
