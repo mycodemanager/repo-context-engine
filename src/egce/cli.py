@@ -89,18 +89,17 @@ _EMBEDDED_GLOBAL_INSTRUCTIONS = """\
 
 You have EGCE installed globally. Use it to manage code project context.
 
-## When the user wants to start a new project
+## When the user wants to start working on a project
 
-When the user provides repository URLs and wants to create a workspace:
+When the user provides repository URLs or points to existing local repositories:
 
-1. Ask: "你想把工作区创建在哪个目录？"
-2. Create the workspace directory
-3. git clone each repository into the workspace
-4. Run `egce init <workspace_path>` to scan all projects and generate analysis
-5. Check stderr for WARNING lines — if a framework is detected but extraction is empty, investigate
-6. Read the generated `.egce/analysis/` files in each project
-7. Based on the analysis, generate `.egce/context/` files (architecture.md, modules.md, api-contracts.md, data-models.md, conventions.md)
-8. Show the user the generated context and ask them to review
+1. If repositories are not yet cloned, ask where to create the workspace and clone them
+2. Determine the workspace root (the directory containing all project repos)
+3. Run `egce init <workspace_path>` to scan all projects and generate analysis
+4. Check stderr for WARNING lines — if a framework is detected but extraction is empty, investigate
+5. Read the generated `.egce/analysis/` files in each project
+6. Based on the analysis, generate `.egce/context/` files (architecture.md, modules.md, api-contracts.md, data-models.md, conventions.md)
+7. Show the user the generated context and ask them to review
 
 ## When working on an existing project with .egce/ directory
 
