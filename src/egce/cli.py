@@ -109,19 +109,24 @@ When the user provides repository URLs and wants to create a workspace:
 1. Read `.egce/context/` for existing architecture and conventions
 2. Run `egce search` in each project to find related existing code
 3. Output a structured spec (YAML) to workspace `.egce/specs/` with precise API definitions, frontend changes, affected files, testing requirements
-4. Ask the user to review and approve
+4. Run `egce spec validate <id>` to check completeness (frontend-backend alignment, field definitions, test cases)
+5. Fix any validation errors
+6. Ask the user to review and approve
 
 ## When developing from a spec
 
-1. Follow the spec exactly for interface definitions
-2. Run `egce pipeline "<task>"` before each task for context
-3. Follow `.egce/context/conventions.md` for code style
-4. Run `egce verify .` after each task
-5. After all tasks: run `egce sync . --check` and update stale context files
+1. Run `egce spec validate <id>` to confirm spec is complete
+2. Run `egce spec test <id> --output-dir tests/` to generate test skeleton
+3. Follow the spec exactly for interface definitions
+4. Run `egce pipeline "<task>"` before each task for context
+5. Follow `.egce/context/conventions.md` for code style
+6. Run `egce verify .` after each task
+7. After all tasks: run `egce sync . --check` and update stale context files
 
 ## Commands
 
-egce init, egce sync, egce scan, egce search, egce pipeline, egce verify, egce spec list/show/status, egce context list/show
+egce init, egce sync, egce scan, egce search, egce pipeline, egce verify,
+egce spec list/show/status/validate/test, egce context list/show
 """
 
 

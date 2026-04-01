@@ -41,12 +41,19 @@ workspace/
    - Frontend page/component changes
    - Affected files
    - Testing requirements
-5. Ask the user to review and approve
+5. Run `egce spec validate <id>` to check self-containment:
+   - Are all API fields defined?
+   - Do frontend calls match backend routes?
+   - Are test cases listed?
+6. Fix any validation errors before asking user to review
+7. Ask the user to review and approve
 
 ## When developing from a spec
 
-1. Read the spec for exact interface definitions
-2. Run `egce pipeline "<task>"` before each task for context
+1. Run `egce spec validate <id>` to confirm spec is complete
+2. Run `egce spec test <id> --output-dir tests/` to generate test skeleton
+3. Read the spec for exact interface definitions
+4. Run `egce pipeline "<task>"` before each task for context
 3. Follow `.egce/context/conventions.md` for code style
 4. Run `egce verify .` after each task
 5. After all tasks: run `egce sync . --check` and update stale context files
@@ -54,14 +61,16 @@ workspace/
 ## Commands
 
 ```
-egce init <path>              — Initialize project/workspace
-egce sync <path>              — Re-scan and update analysis
-egce sync <path> --check      — Check context freshness
-egce scan <path>              — View code structure
-egce search "<query>" <path>  — Find relevant code
-egce pipeline "<task>" <path> — Full context pipeline
-egce verify <path>            — Run tests/lint
-egce spec list                — List specs
-egce spec show <id>           — Show spec
-egce spec status <id> <s>     — Update spec status
+egce init <path>                    — Initialize project/workspace
+egce sync <path>                    — Re-scan and update analysis
+egce sync <path> --check            — Check context freshness
+egce scan <path>                    — View code structure
+egce search "<query>" <path>        — Find relevant code
+egce pipeline "<task>" <path>       — Full context pipeline
+egce verify <path>                  — Run tests/lint
+egce spec list                      — List specs
+egce spec show <id>                 — Show spec
+egce spec status <id> <s>           — Update spec status
+egce spec validate <id>             — Check spec self-containment
+egce spec test <id> --output-dir d  — Generate test skeleton from spec
 ```
