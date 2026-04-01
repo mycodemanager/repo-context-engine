@@ -1,0 +1,14 @@
+project: repo-context-engine
+language: python
+project_type: backend
+
+scan:
+  # include: ['src/*']
+  # exclude: ['tests/*', 'docs/*']
+
+context_priority:
+  - context/architecture.md
+  - context/api-contracts.md
+  - context/modules.md
+  - context/conventions.md
+  - context/data-models.md
