@@ -254,3 +254,90 @@ class TestVerifier:
         assert not r.passed
         assert len(r.failed_checks) == 1
         assert r.failed_checks[0].kind == CheckKind.LINT
+
+    def test_context_check_stale(self, tmp_path: Path) -> None:
+        """Verify detects stale context when a route is missing from api-contracts.md."""
+        (tmp_path / "pyproject.toml").write_text('[project]\ndependencies=["fastapi"]\n')
+        (tmp_path / "main.py").write_text(textwrap.dedent("""\
+            from fastapi import FastAPI
+            app = FastAPI()
+
+            @app.get("/api/v1/users")
+            async def list_users():
+                return []
+        """))
+
+        import egce.extractors.fastapi_ext  # noqa: F401
+        from egce.workspace import init_project
+
+        init_project(tmp_path)
+
+        # Write context that doesn't mention the route
+        (tmp_path / ".egce" / "context" / "api-contracts.md").write_text(
+            "# API Contracts\n\nNo APIs documented yet.\n"
+        )
+
+        from egce.verify import CheckKind, Verifier
+
+        v = Verifier(tmp_path, timeout=30)
+        result = v.run(kinds={CheckKind.CONTEXT})
+        context_checks = [c for c in result.checks if c.kind == CheckKind.CONTEXT]
+        assert len(context_checks) == 1
+        assert not context_checks[0].passed
+        assert "stale" in context_checks[0].summary
+
+    def test_context_check_up_to_date(self, tmp_path: Path) -> None:
+        """Verify passes when context mentions all routes."""
+        (tmp_path / "pyproject.toml").write_text('[project]\ndependencies=["fastapi"]\n')
+        (tmp_path / "main.py").write_text(textwrap.dedent("""\
+            from fastapi import FastAPI
+            app = FastAPI()
+
+            @app.get("/api/v1/users")
+            async def list_users():
+                return []
+        """))
+
+        import egce.extractors.fastapi_ext  # noqa: F401
+        from egce.workspace import init_project
+
+        init_project(tmp_path)
+
+        # Write context that mentions the route
+        (tmp_path / ".egce" / "context" / "api-contracts.md").write_text(
+            "# API Contracts\n\n- GET /api/v1/users — list users\n"
+        )
+
+        from egce.verify import CheckKind, Verifier
+
+        v = Verifier(tmp_path, timeout=30)
+        result = v.run(kinds={CheckKind.CONTEXT})
+        context_checks = [c for c in result.checks if c.kind == CheckKind.CONTEXT]
+        assert len(context_checks) == 1
+        assert context_checks[0].passed
+
+    def test_context_check_skips_template_placeholder(self, tmp_path: Path) -> None:
+        """Verify skips context files that are still template placeholders."""
+        (tmp_path / "pyproject.toml").write_text('[project]\ndependencies=["fastapi"]\n')
+        (tmp_path / "main.py").write_text(textwrap.dedent("""\
+            from fastapi import FastAPI
+            app = FastAPI()
+
+            @app.get("/api/v1/users")
+            async def list_users():
+                return []
+        """))
+
+        import egce.extractors.fastapi_ext  # noqa: F401
+        from egce.workspace import init_project
+
+        init_project(tmp_path)
+        # api-contracts.md is still the template placeholder — should be skipped
+
+        from egce.verify import CheckKind, Verifier
+
+        v = Verifier(tmp_path, timeout=30)
+        result = v.run(kinds={CheckKind.CONTEXT})
+        context_checks = [c for c in result.checks if c.kind == CheckKind.CONTEXT]
+        assert len(context_checks) == 1
+        assert context_checks[0].passed

@@ -66,6 +66,8 @@ AI 会自动执行：
 4. 基于扫描结果生成项目上下文文档
 5. 让你审核后，告诉你可以开始工作了
 
+> **提示**：如果扫描过程中检测到了框架（如 FastAPI）但提取结果为空（0 个路由），终端会输出 `WARNING` 提醒你检查代码格式是否符合预期。这是正常的防护机制，避免 AI 基于不完整的分析结果工作。
+
 **之后你就可以直接对话做事了。**
 
 ---
@@ -242,6 +244,8 @@ Python, JavaScript, TypeScript, Go, Rust, Java
 | `egce context list` | 查看项目上下文文件 |
 | `egce context show <name>` | 查看某个上下文文件 |
 
+所有命令支持 `--verbose / -v` 全局参数，开启后会输出详细的调试日志，方便排查问题。
+
 注意：**一般情况下你不需要手动执行这些命令**，AI 会自动调用。列在这里是为了调试和了解。
 
 ---
@@ -276,6 +280,27 @@ egce spec test feature-export --output-dir tests/
 - 前端：生成 Jest 测试文件，每个测试用例一个 it()
 
 AI 开发时先跑测试（全部失败），再写代码让测试通过。**测试是验收标准，不是事后补的。**
+
+### Context 过期检查
+
+`egce verify` 会自动检查 `.egce/context/` 是否和实际代码一致：
+
+```
+egce verify .
+# [PASS] pytest  (1.2s)
+# [PASS] ruff check  (0.3s)
+# [FAIL] egce sync --check  (0.8s)
+#        2 stale context item(s)
+```
+
+检查内容：
+- 新增的 API 路由是否出现在 `context/api-contracts.md`
+- 新增的数据模型是否出现在 `context/data-models.md`
+- 新增的代码目录是否出现在 `context/modules.md`
+
+如果 context 文件还是模板占位符（未编辑），跳过检查。
+
+**AI 改完代码跑 verify，context 过期就会被卡住，必须更新后才能通过。** 这确保了项目文档不会滞后于代码。
 
 ### 效果追踪
 

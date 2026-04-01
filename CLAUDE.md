@@ -2,6 +2,11 @@
 
 Type: backend (python)
 
+## 协作原则（必读）
+
+读取并严格遵守 `/Users/macbookpro/Desktop/context/collaboration.md` 中的所有规则。
+读取 `/Users/macbookpro/Desktop/context/user.md` 了解用户背景。
+
 ## EGCE Tools
 
 This project uses EGCE for context management. Available commands:

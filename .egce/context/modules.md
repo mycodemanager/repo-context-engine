@@ -8,7 +8,7 @@
 | retrieve.py | BM25 + symbol 混合检索，WorkspaceRetriever 多项目联合检索 |
 | compress.py | query-aware 代码片段压缩（保留签名/约束，删除注释/样板）|
 | packer.py | 槽位制 token 预算打包，自动加载 .egce/context/ 和活跃 spec |
-| verify.py | 自动检测并运行 pytest/ruff/npm test/go test/cargo test |
+| verify.py | 自动检测并运行 pytest/ruff/npm test/go test/cargo test + context 过期检查 |
 | workspace.py | egce init（扫描 + 生成 .egce/）、egce sync（重扫 + 过期检测）|
 | spec.py | spec 管理 + 自包含性验证 + 测试骨架生成 |
 | telemetry.py | pipeline token 统计和追踪（JSONL 记录）|
@@ -19,6 +19,8 @@
 
 每个框架一个文件，通过 `@register_extractor` 装饰器注册。
 自动检测机制：读依赖文件（pyproject.toml/package.json/go.mod）中的关键词匹配框架。
+提取容错：每个 extract_* 方法独立 try/catch，失败写入 AnalysisResult.warnings 而非静默返回空。
+覆盖率检查：框架被检测到但提取结果为 0 时自动生成警告，通过 CLI 输出 WARNING。
 
 | 提取器 | 语言 | 提取内容 |
 |---|---|---|

@@ -204,6 +204,7 @@ def init_project(
         "components": n_components,
         "infra": len(analysis.infra),
         "env_vars": len(analysis.env_vars),
+        "warnings": analysis.warnings,
     }
 
 
@@ -241,7 +242,7 @@ def sync_project(
     repo = RepoMap(root)
     scan_result = repo.scan(include=include, exclude=exclude)
 
-    warnings: list[str] = []
+    warnings: list[str] = list(analysis.warnings)
 
     if check_only or diff:
         # Compare with existing analysis
@@ -284,7 +285,11 @@ def sync_project(
 
 
 def _check_context_freshness(root: Path, analysis: AnalysisResult, scan_result) -> list[str]:
-    """Compare analysis results against context/ files and report staleness."""
+    """Compare analysis results against context/ files and report staleness.
+
+    Skips context files that are still template placeholders (contain only
+    HTML comment instructions and headings).
+    """
     warnings: list[str] = []
     context_dir = root / ".egce" / "context"
 
@@ -292,32 +297,85 @@ def _check_context_freshness(root: Path, analysis: AnalysisResult, scan_result) 
     api_file = context_dir / "api-contracts.md"
     if api_file.exists() and analysis.routes:
         api_text = api_file.read_text()
-        for route in analysis.routes:
-            if route.path not in api_text:
-                warnings.append(f"Route {route.method} {route.path} not mentioned in context/api-contracts.md")
+        if not _is_template_placeholder(api_text):
+            for route in analysis.routes:
+                if route.path not in api_text:
+                    warnings.append(f"Route {route.method} {route.path} not mentioned in context/api-contracts.md")
 
     # Check modules.md against actual file structure
     modules_file = context_dir / "modules.md"
     if modules_file.exists():
         modules_text = modules_file.read_text()
-        top_dirs = set()
-        for fi in scan_result.files:
-            parts = fi.path.split("/")
-            if len(parts) > 1:
-                top_dirs.add(parts[0])
-        for d in top_dirs:
-            if d not in modules_text and d not in ("tests", "test", "docs", "scripts"):
-                warnings.append(f"Directory '{d}/' not mentioned in context/modules.md")
+        if not _is_template_placeholder(modules_text):
+            top_dirs = set()
+            for fi in scan_result.files:
+                parts = fi.path.split("/")
+                if len(parts) > 1:
+                    top_dirs.add(parts[0])
+            for d in top_dirs:
+                if d not in modules_text and d not in ("tests", "test", "docs", "scripts"):
+                    warnings.append(f"Directory '{d}/' not mentioned in context/modules.md")
 
     # Check data-models.md against actual models
     dm_file = context_dir / "data-models.md"
     if dm_file.exists() and analysis.models:
         dm_text = dm_file.read_text()
-        for model in analysis.models:
-            if model.name not in dm_text:
-                warnings.append(f"Model '{model.name}' not mentioned in context/data-models.md")
+        if not _is_template_placeholder(dm_text):
+            for model in analysis.models:
+                if model.name not in dm_text:
+                    warnings.append(f"Model '{model.name}' not mentioned in context/data-models.md")
 
     return warnings
+
+
+def _is_template_placeholder(text: str) -> bool:
+    """Return True if text is still an untouched template (only headings + HTML comments)."""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            continue
+        if stripped.startswith("<!--") and stripped.endswith("-->"):
+            continue
+        return False
+    return True
+
+
+def check_context(root: str | Path) -> list[str]:
+    """Run context freshness check as a standalone function.
+
+    Used by Verifier to integrate context checking into egce verify.
+    Returns list of warning strings (empty = all good).
+    """
+    root = Path(root).resolve()
+    egce_dir = root / ".egce"
+    if not egce_dir.exists():
+        return []
+
+    context_dir = egce_dir / "context"
+    if not context_dir.exists():
+        return []
+
+    # Need to import extractors to run analysis
+    import egce.extractors.fastapi_ext  # noqa: F401
+    import egce.extractors.django_ext  # noqa: F401
+    import egce.extractors.express_ext  # noqa: F401
+    import egce.extractors.react_ext  # noqa: F401
+    import egce.extractors.vue_ext  # noqa: F401
+
+    # Read config for include/exclude
+    config_path = egce_dir / "config.yaml"
+    include = None
+    exclude = None
+    if config_path.exists():
+        include, exclude = _parse_config_scan(config_path.read_text())
+
+    analysis = run_analysis(root, include=include, exclude=exclude)
+    repo = RepoMap(root)
+    scan_result = repo.scan(include=include, exclude=exclude)
+
+    return _check_context_freshness(root, analysis, scan_result)
 
 
 # ---------------------------------------------------------------------------

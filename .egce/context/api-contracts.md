@@ -14,7 +14,7 @@ from egce import RepoMap, Retriever, WorkspaceRetriever, ContextPacker, Verifier
 - `compress_chunks(chunks, query)` → `list[EvidenceChunk]`
 - `ContextPacker(budget).set_slot() / .build()` → `str`
 - `load_project_context(packer, root)` — 自动加载 .egce/context/ 和活跃 spec
-- `Verifier(root).run()` → `VerifyResult`
+- `Verifier(root).run()` → `VerifyResult`（含 test、lint、context 过期检查）
 
 ## 2. CLI
 

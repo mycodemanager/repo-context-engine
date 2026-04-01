@@ -32,9 +32,10 @@ When user provides repository URLs:
 1. Ask where to create the workspace
 2. Create the directory and git clone each repository
 3. Run `egce init` in the workspace root
-4. Read `.egce/analysis/` files for each project
-5. Generate `.egce/context/` files based on analysis results
-6. Ask user to review the generated context
+4. **Check stderr for WARNING lines** — if a framework is detected but extraction results are empty (0 routes, 0 components), investigate before proceeding
+5. Read `.egce/analysis/` files for each project
+6. Generate `.egce/context/` files based on analysis results
+7. Ask user to review the generated context
 
 ### Phase 2: Requirement Analysis
 
@@ -63,7 +64,7 @@ When user approves a spec (status: approved):
    b. Read the spec for exact API/field/component definitions
    c. Write code following `.egce/context/conventions.md`
    d. Run `egce verify .` after completing the task
-   e. If verification fails, read errors and fix
+   e. If verification fails, read errors and fix — this includes context staleness checks, so update `.egce/context/` files if prompted
    f. Mark task as done in the spec
 4. After all tasks complete, update spec status to `done`
 

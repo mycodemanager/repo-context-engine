@@ -14,6 +14,13 @@
 - 模块内的辅助函数用 `_` 前缀标记为私有
 - 每个模块顶部有 docstring 说明职责
 
+## 日志规范
+
+- 使用 `logging.getLogger("egce")` 命名空间（子模块用 `egce.mcp` 等）
+- 不直接 `print()` 调试信息，用 `logger.debug()` / `logger.warning()`
+- CLI 通过 `--verbose / -v` 全局参数控制日志级别（默认 WARNING，-v 开启 DEBUG）
+- 异常处理：不使用裸 `except Exception` 吞掉错误，至少 `logger.warning()` 记录
+
 ## 新增模块的规范
 
 - 框架提取器放 `src/egce/extractors/`，用 `@register_extractor` 注册

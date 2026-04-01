@@ -20,6 +20,7 @@ class CheckKind(str, Enum):
     LINT = "lint"
     TYPECHECK = "typecheck"
     BUILD = "build"
+    CONTEXT = "context"
     CUSTOM = "custom"
 
 
@@ -138,6 +139,13 @@ class Verifier:
         for kind, cmd in checks:
             cr = self._run_one(kind, cmd)
             result.checks.append(cr)
+
+        # Context freshness check
+        if kinds is None or CheckKind.CONTEXT in kinds:
+            cr = self._run_context_check()
+            if cr is not None:
+                result.checks.append(cr)
+
         return result
 
     def run_command(self, kind: CheckKind, cmd: list[str] | str) -> CheckResult:
@@ -149,6 +157,45 @@ class Verifier:
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    def _run_context_check(self) -> CheckResult | None:
+        """Check if .egce/context/ files are stale relative to actual code."""
+        if not (self.root / ".egce" / "context").exists():
+            return None
+
+        t0 = time.monotonic()
+        try:
+            from egce.workspace import check_context
+
+            warnings = check_context(self.root)
+            duration = time.monotonic() - t0
+            if warnings:
+                summary = f"{len(warnings)} stale context item(s)"
+                detail = "\n".join(f"  {w}" for w in warnings)
+                return CheckResult(
+                    kind=CheckKind.CONTEXT,
+                    command="egce sync --check",
+                    passed=False,
+                    duration_s=round(duration, 2),
+                    stderr=detail,
+                    summary=summary,
+                )
+            return CheckResult(
+                kind=CheckKind.CONTEXT,
+                command="egce sync --check",
+                passed=True,
+                duration_s=round(duration, 2),
+                summary="Context files are up to date",
+            )
+        except Exception as e:
+            duration = time.monotonic() - t0
+            return CheckResult(
+                kind=CheckKind.CONTEXT,
+                command="egce sync --check",
+                passed=False,
+                duration_s=round(duration, 2),
+                summary=f"Context check failed: {e}",
+            )
 
     def _resolve_checks(self) -> list[tuple[CheckKind, list[str]]]:
         """Determine which checks to run based on repo contents."""

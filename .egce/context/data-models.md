@@ -22,7 +22,7 @@ EGCE 的核心数据结构定义在各模块中，没有集中的 ORM 层。
 - **StoreInfo** — 状态管理 store
 - **InfraInfo** — 基础设施依赖
 - **EnvVarInfo** — 环境变量
-- **AnalysisResult** — 完整分析结果，聚合所有提取信息
+- **AnalysisResult** — 完整分析结果，聚合所有提取信息，含 warnings 字段（提取异常和覆盖率警告）
 
 ## spec.py
 

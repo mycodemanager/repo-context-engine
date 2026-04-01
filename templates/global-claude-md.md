@@ -10,9 +10,10 @@ When the user provides repository URLs and wants to create a workspace:
 2. Create the workspace directory
 3. git clone each repository into the workspace
 4. Run `egce init <workspace_path>` to scan all projects and generate analysis
-5. Read the generated `.egce/analysis/` files in each project
-6. Based on the analysis, generate `.egce/context/` files (architecture.md, modules.md, api-contracts.md, data-models.md, conventions.md)
-7. Show the user the generated context and ask them to review
+5. **Check stderr for WARNING lines** — if a framework is detected but extraction results are empty, investigate whether the code follows standard patterns before proceeding
+6. Read the generated `.egce/analysis/` files in each project
+7. Based on the analysis, generate `.egce/context/` files (architecture.md, modules.md, api-contracts.md, data-models.md, conventions.md)
+8. Show the user the generated context and ask them to review
 
 Example workspace structure after init:
 ```
@@ -56,7 +57,8 @@ workspace/
 4. Run `egce pipeline "<task>"` before each task for context
 3. Follow `.egce/context/conventions.md` for code style
 4. Run `egce verify .` after each task
-5. After all tasks: run `egce sync . --check` and update stale context files
+5. If verify reports stale context, update the relevant `.egce/context/` files before proceeding
+6. After all tasks: run `egce sync . --check` and update stale context files
 
 ## Commands
 
@@ -74,3 +76,5 @@ egce spec status <id> <s>           — Update spec status
 egce spec validate <id>             — Check spec self-containment
 egce spec test <id> --output-dir d  — Generate test skeleton from spec
 ```
+
+All commands support `--verbose` / `-v` for debug logging.
