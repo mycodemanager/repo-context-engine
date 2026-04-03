@@ -37,6 +37,7 @@ workspace/
 2. Run `egce search` in each project to find related existing code
 3. Analyze what exists, what needs to change
 4. Output a structured spec (YAML) to the workspace `.egce/specs/` directory:
+   - Use actual project names from workspace.yaml as section keys (e.g. `tarspay:`, `merchant:`, `manager:`) instead of generic `backend:`/`frontend:`
    - Precise API definitions with field names and types
    - Frontend page/component changes
    - Affected files

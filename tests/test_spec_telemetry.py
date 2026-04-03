@@ -115,6 +115,132 @@ class TestSpecValidation:
         text = result.to_text()
         assert "test-feature" in text
 
+    def test_multi_frontend_validation_passes(self, tmp_path: Path) -> None:
+        """Spec with multiple frontend sections passes when APIs align."""
+        # Create workspace.yaml so projects are recognized
+        egce_dir = tmp_path / ".egce"
+        egce_dir.mkdir()
+        (egce_dir / "workspace.yaml").write_text(textwrap.dedent("""\
+            workspace: test
+            projects:
+              - name: tarspay
+                path: ./tarspay
+                language: python
+                framework: fastapi
+              - name: manager
+                path: ./manager
+                language: javascript
+                framework: react
+              - name: merchant
+                path: ./merchant
+                language: javascript
+                framework: vue
+        """))
+
+        self._make_spec(tmp_path, textwrap.dedent("""\
+            id: test-feature
+            title: Multi Frontend Test
+            status: draft
+
+            tarspay:
+              tasks:
+                - id: be-1
+                  api:
+                    method: POST
+                    path: /api/v1/refunds
+                    request:
+                      body:
+                        order_id: string
+
+              testing:
+                - POST /api/v1/refunds creates a refund
+
+            merchant:
+              api_calls:
+                - POST /api/v1/refunds
+              testing:
+                - Refund form submits correctly
+
+            manager:
+              api_calls:
+                - POST /api/v1/refunds
+              testing:
+                - Refund list shows new entries
+        """))
+
+        from egce.spec import validate_spec
+
+        result = validate_spec(tmp_path, "test-feature")
+        assert result.passed, result.to_text()
+
+    def test_multi_frontend_alignment_error(self, tmp_path: Path) -> None:
+        """Frontend section calling API that no backend defines should fail."""
+        egce_dir = tmp_path / ".egce"
+        egce_dir.mkdir()
+        (egce_dir / "workspace.yaml").write_text(textwrap.dedent("""\
+            workspace: test
+            projects:
+              - name: tarspay
+                path: ./tarspay
+                language: python
+              - name: merchant
+                path: ./merchant
+                language: javascript
+                framework: react
+        """))
+
+        self._make_spec(tmp_path, textwrap.dedent("""\
+            id: test-feature
+            title: Alignment Error Test
+            status: draft
+
+            tarspay:
+              tasks:
+                - id: be-1
+                  api:
+                    method: GET
+                    path: /api/v1/users
+
+            merchant:
+              api_calls:
+                - POST /api/v1/payments
+              testing:
+                - Payment form works
+        """))
+
+        from egce.spec import validate_spec
+
+        result = validate_spec(tmp_path, "test-feature")
+        assert any("payments" in i.message and "merchant" in i.message for i in result.issues)
+
+    def test_backward_compatible_spec(self, tmp_path: Path) -> None:
+        """Old-style backend/frontend spec still works without workspace.yaml."""
+        self._make_spec(tmp_path, textwrap.dedent("""\
+            id: test-feature
+            title: Legacy Format
+            status: draft
+
+            backend:
+              tasks:
+                - api:
+                    method: GET
+                    path: /api/v1/items
+
+              testing:
+                - GET /api/v1/items returns list
+
+            frontend:
+              api_calls:
+                - GET /api/v1/items
+              testing:
+                - Items list renders
+        """))
+
+        from egce.spec import validate_spec
+
+        result = validate_spec(tmp_path, "test-feature")
+        assert result.passed, result.to_text()
+
 
 class TestTestGeneration:
     """Test skeleton generation from specs."""
@@ -195,6 +321,65 @@ class TestTestGeneration:
 
         files = generate_test_skeleton(tmp_path, "batch-export")
         assert len(files) == 0
+
+    def test_multi_project_skeleton(self, tmp_path: Path) -> None:
+        """Test skeleton generation for multi-project spec with workspace.yaml."""
+        egce_dir = tmp_path / ".egce"
+        egce_dir.mkdir()
+        (egce_dir / "workspace.yaml").write_text(textwrap.dedent("""\
+            workspace: test
+            projects:
+              - name: tarspay
+                path: ./tarspay
+                language: python
+                framework: fastapi
+              - name: merchant
+                path: ./merchant
+                language: javascript
+                framework: vue
+        """))
+        specs_dir = egce_dir / "specs"
+        specs_dir.mkdir()
+        (specs_dir / "batch-export.yaml").write_text(textwrap.dedent("""\
+            id: batch-export
+            title: Batch Export Feature
+
+            tarspay:
+              tasks:
+                - id: be-1
+                  api:
+                    method: POST
+                    path: /api/v1/exports/batch
+              testing:
+                - POST returns task_id
+                - Empty list returns 400
+
+            merchant:
+              testing:
+                - Export button shows progress
+                - Download completes
+        """))
+
+        from egce.spec import generate_test_skeleton
+
+        files = generate_test_skeleton(tmp_path, "batch-export")
+
+        # Should generate tarspay (pytest) and merchant (jest) files
+        py_files = {k: v for k, v in files.items() if k.endswith(".py")}
+        ts_files = {k: v for k, v in files.items() if k.endswith(".ts")}
+
+        assert len(py_files) == 1
+        assert len(ts_files) == 1
+        assert "tarspay" in list(py_files.keys())[0]
+        assert "merchant" in list(ts_files.keys())[0]
+
+        # pytest file should have 2 test functions
+        py_content = list(py_files.values())[0]
+        assert py_content.count("def test_") == 2
+
+        # jest file should have 2 it() blocks
+        ts_content = list(ts_files.values())[0]
+        assert ts_content.count('it("') == 2
 
 
 class TestTelemetry:

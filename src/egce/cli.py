@@ -111,7 +111,7 @@ When the user provides repository URLs or points to existing local repositories:
 
 1. Read `.egce/context/` for existing architecture and conventions
 2. Run `egce search` in each project to find related existing code
-3. Output a structured spec (YAML) to workspace `.egce/specs/` with precise API definitions, frontend changes, affected files, testing requirements
+3. Output a structured spec (YAML) to workspace `.egce/specs/` — use actual project names from workspace.yaml as section keys (not generic backend/frontend), with precise API definitions, frontend changes, affected files, testing requirements
 4. Run `egce spec validate <id>` to check completeness (frontend-backend alignment, field definitions, test cases)
 5. Fix any validation errors
 6. Ask the user to review and approve

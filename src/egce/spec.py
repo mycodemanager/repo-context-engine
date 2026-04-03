@@ -7,6 +7,78 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+# ---------------------------------------------------------------------------
+# Workspace project info
+# ---------------------------------------------------------------------------
+
+# Reserved section names that are always recognized without workspace.yaml
+_RESERVED_SECTIONS = {"backend": "backend", "frontend": "frontend"}
+
+
+def _read_workspace_projects(root: Path) -> dict[str, str]:
+    """Read project names and types from workspace.yaml.
+
+    Returns {project_name: project_type} e.g. {"tarspay": "backend", "manager": "frontend"}.
+    Falls back to reserved names if no workspace.yaml exists.
+    """
+    projects: dict[str, str] = {}
+
+    # Try workspace level
+    for base in (root, root.parent):
+        ws_yaml = base / ".egce" / "workspace.yaml"
+        if ws_yaml.exists():
+            current_name = ""
+            for line in ws_yaml.read_text().splitlines():
+                stripped = line.strip()
+                if stripped.startswith("- name:"):
+                    current_name = stripped.split(":", 1)[1].strip()
+                elif stripped.startswith("language:") and current_name:
+                    lang = stripped.split(":", 1)[1].strip()
+                    # Infer type from language — Python/Go/Java/Rust are typically backend
+                    if lang in ("python", "go", "java", "rust"):
+                        projects[current_name] = "backend"
+                    else:
+                        projects[current_name] = "frontend"
+                elif stripped.startswith("framework:") and current_name:
+                    fw = stripped.split(":", 1)[1].strip().lower()
+                    # Override if framework explicitly indicates frontend
+                    if any(f in fw for f in ("react", "vue", "angular", "next", "nuxt", "svelte")):
+                        projects[current_name] = "frontend"
+            if projects:
+                return projects
+
+    return {}
+
+
+def _classify_spec_sections(content: str, projects: dict[str, str]) -> dict[str, str]:
+    """Identify which top-level sections in a spec are project sections.
+
+    Returns {section_name: "backend"|"frontend"}.
+    Recognizes reserved names (backend/frontend) and workspace project names.
+    """
+    sections: dict[str, str] = {}
+    # Non-project top-level keys to skip
+    skip_keys = {"id", "title", "status", "description", "testing", "test", "affected_files", "notes"}
+
+    for line in content.splitlines():
+        if line.startswith(" ") or line.startswith("\t"):
+            continue
+        if ":" not in line:
+            continue
+        key = line.split(":")[0].strip()
+        if key in skip_keys:
+            continue
+
+        # Check reserved names first
+        if key in _RESERVED_SECTIONS:
+            sections[key] = _RESERVED_SECTIONS[key]
+        # Then check workspace projects
+        elif key in projects:
+            sections[key] = projects[key]
+
+    return sections
+
+
 def _find_specs_dir(root: str | Path) -> Path | None:
     """Find the specs directory — workspace level first, then project level."""
     root = Path(root).resolve()
@@ -173,43 +245,51 @@ def validate_spec(root: str | Path, spec_id: str) -> ValidationResult:
             ))
 
     # --- Check 2: Backend API completeness ---
-    backend_apis = _extract_spec_apis(content, "backend")
-    for api in backend_apis:
-        if not api.get("method"):
-            result.issues.append(ValidationIssue(
-                "error", f"API missing method: {api.get('path', '?')}", "backend.api"
-            ))
-        if not api.get("path"):
-            result.issues.append(ValidationIssue(
-                "error", "API missing path", "backend.api"
-            ))
-        # Check request/response field definitions
-        if api.get("method") in ("POST", "PUT", "PATCH") and not api.get("has_request_body"):
-            result.issues.append(ValidationIssue(
-                "warning", f"{api.get('method')} {api.get('path')} has no request body fields defined",
-                "backend.api"
-            ))
+    projects = _read_workspace_projects(root)
+    sections = _classify_spec_sections(content, projects)
+    backend_sections = [s for s, t in sections.items() if t == "backend"]
+    frontend_sections = [s for s, t in sections.items() if t == "frontend"]
 
-    # --- Check 3: Frontend-backend API alignment ---
-    frontend_api_calls = _extract_spec_apis(content, "frontend")
-    backend_paths = {a.get("path") for a in backend_apis if a.get("path")}
-    frontend_paths = {a.get("path") for a in frontend_api_calls if a.get("path")}
+    all_backend_apis: list[dict] = []
+    for bs in backend_sections:
+        apis = _extract_spec_apis(content, bs)
+        for api in apis:
+            if not api.get("method"):
+                result.issues.append(ValidationIssue(
+                    "error", f"API missing method: {api.get('path', '?')}", f"{bs}.api"
+                ))
+            if not api.get("path"):
+                result.issues.append(ValidationIssue(
+                    "error", "API missing path", f"{bs}.api"
+                ))
+            if api.get("method") in ("POST", "PUT", "PATCH") and not api.get("has_request_body"):
+                result.issues.append(ValidationIssue(
+                    "warning", f"{api.get('method')} {api.get('path')} has no request body fields defined",
+                    f"{bs}.api"
+                ))
+        all_backend_apis.extend(apis)
 
-    for fp in frontend_paths:
-        # Normalize path parameters for comparison
-        fp_normalized = re.sub(r"\{[^}]+\}", "{}", fp)
-        matched = False
-        for bp in backend_paths:
-            bp_normalized = re.sub(r"\{[^}]+\}", "{}", bp)
-            if fp_normalized == bp_normalized:
-                matched = True
-                break
-        if not matched and not fp.startswith("http"):
-            result.issues.append(ValidationIssue(
-                "error",
-                f"Frontend calls {fp} but backend has no matching route",
-                "frontend-backend alignment"
-            ))
+    # --- Check 3: Frontend-backend API alignment (per frontend section) ---
+    backend_paths = {a.get("path") for a in all_backend_apis if a.get("path")}
+
+    for fs in frontend_sections:
+        frontend_api_calls = _extract_spec_apis(content, fs)
+        frontend_paths = {a.get("path") for a in frontend_api_calls if a.get("path")}
+
+        for fp in frontend_paths:
+            fp_normalized = re.sub(r"\{[^}]+\}", "{}", fp)
+            matched = False
+            for bp in backend_paths:
+                bp_normalized = re.sub(r"\{[^}]+\}", "{}", bp)
+                if fp_normalized == bp_normalized:
+                    matched = True
+                    break
+            if not matched and not fp.startswith("http"):
+                result.issues.append(ValidationIssue(
+                    "error",
+                    f"[{fs}] calls {fp} but no backend has a matching route",
+                    f"{fs}-backend alignment"
+                ))
 
     # --- Check 4: Referenced files exist ---
     affected_files = _extract_affected_files(content)
@@ -305,13 +385,20 @@ def _extract_spec_apis(content: str, section: str) -> list[dict]:
 
 
 def _extract_affected_files(content: str) -> list[tuple[str, str]]:
-    """Extract affected_files entries from spec."""
+    """Extract affected_files entries from spec.
+
+    Recognizes any top-level section followed by indented file paths,
+    not just backend/frontend.
+    """
     files: list[tuple[str, str]] = []
     current_section = ""
     for line in content.splitlines():
         stripped = line.strip()
-        if stripped in ("backend:", "frontend:"):
-            current_section = stripped.rstrip(":")
+        # Detect top-level section (no leading whitespace, ends with colon)
+        if not line.startswith(" ") and not line.startswith("\t") and stripped.endswith(":"):
+            key = stripped.rstrip(":")
+            if key not in ("id", "title", "status", "description", "testing", "test", "notes"):
+                current_section = key
         if "affected_files:" in stripped:
             continue
         if current_section and stripped.startswith("- ") and "/" in stripped:
@@ -358,19 +445,37 @@ def generate_test_skeleton(root: str | Path, spec_id: str) -> dict[str, str]:
 
     output: dict[str, str] = {}
 
-    # Extract backend test cases
-    be_tests = _extract_test_cases(content, "backend")
-    if be_tests:
-        output[f"test_{safe_name}_backend.py"] = _render_pytest_skeleton(
-            spec_title, be_tests, _extract_spec_apis(content, "backend")
-        )
+    # Determine project sections
+    projects = _read_workspace_projects(root)
+    sections = _classify_spec_sections(content, projects)
 
-    # Extract frontend test cases
-    fe_tests = _extract_test_cases(content, "frontend")
-    if fe_tests:
-        output[f"test_{safe_name}_frontend.ts"] = _render_jest_skeleton(
-            spec_title, fe_tests
-        )
+    if sections:
+        # Multi-project or explicit sections
+        for section_name, section_type in sections.items():
+            tests = _extract_test_cases(content, section_name)
+            if not tests:
+                continue
+            if section_type == "backend":
+                apis = _extract_spec_apis(content, section_name)
+                output[f"test_{safe_name}_{section_name}.py"] = _render_pytest_skeleton(
+                    spec_title, tests, apis
+                )
+            else:
+                output[f"test_{safe_name}_{section_name}.ts"] = _render_jest_skeleton(
+                    spec_title, tests
+                )
+    else:
+        # Fallback: legacy backend/frontend format
+        be_tests = _extract_test_cases(content, "backend")
+        if be_tests:
+            output[f"test_{safe_name}_backend.py"] = _render_pytest_skeleton(
+                spec_title, be_tests, _extract_spec_apis(content, "backend")
+            )
+        fe_tests = _extract_test_cases(content, "frontend")
+        if fe_tests:
+            output[f"test_{safe_name}_frontend.ts"] = _render_jest_skeleton(
+                spec_title, fe_tests
+            )
 
     return output
 

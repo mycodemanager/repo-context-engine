@@ -164,6 +164,38 @@ AI 运行测试验证 → 全部通过后更新项目文档
 
 **关键设计**：需求规格里同时定义了后端接口和前端交互，AI 开发时严格按规格执行，前后端天然对齐，不需要联调扯皮。
 
+### 多前端仓库
+
+如果你的项目有多个前端（管理端、商户端、支付端等），spec 按实际项目名分段：
+
+```yaml
+id: feature-refund
+title: 商户退款功能
+status: draft
+
+tarspay:                    # 后端项目名（来自 workspace.yaml）
+  tasks:
+    - id: be-1
+      title: 退款接口
+      api:
+        method: POST
+        path: /api/v1/refunds
+
+merchant:                   # 前端-商户端
+  api_calls:
+    - POST /api/v1/refunds
+  testing:
+    - 退款表单提交
+
+manager:                    # 前端-管理端（不涉及则不写）
+  api_calls:
+    - POST /api/v1/refunds
+  testing:
+    - 退款列表展示
+```
+
+`egce spec validate` 会自动识别哪些是后端、哪些是前端（根据 workspace.yaml），分别做 API 完整性检查和前后端对齐检查。旧的 `backend`/`frontend` 格式仍然支持。
+
 ---
 
 ## 项目上下文（核心价值）

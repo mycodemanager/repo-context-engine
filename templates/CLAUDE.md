@@ -44,10 +44,11 @@ When user describes a new requirement:
 2. Run `egce search "<requirement keywords>"` in each project to find related code
 3. Analyze what exists, what needs to change, and what needs to be created
 4. Output a structured spec (YAML) with:
+   - Use actual project names from workspace.yaml as section keys (e.g. `tarspay:`, `merchant:`) instead of generic `backend:`/`frontend:`
    - Precise API definitions (method, path, request/response fields with types)
    - Frontend page changes (which page, what components, what interactions)
-   - Affected files list for both frontend and backend
-   - Testing requirements
+   - Affected files list for each project
+   - Testing requirements per project
 5. Save spec to workspace `.egce/specs/` directory
 6. Ask user to review and approve the spec
 

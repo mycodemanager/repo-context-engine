@@ -28,6 +28,8 @@ EGCE 的核心数据结构定义在各模块中，没有集中的 ORM 层。
 
 - **ValidationIssue** — 验证问题（error/warning）
 - **ValidationResult** — 验证结果，含 passed/errors/warnings
+- Spec 格式支持按项目名分段（如 tarspay/manager/merchant），不再限于 backend/frontend
+- 通过 workspace.yaml 识别项目名和类型（backend/frontend），向后兼容旧格式
 
 ## telemetry.py
 
